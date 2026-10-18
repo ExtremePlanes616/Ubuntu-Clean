@@ -19,8 +19,8 @@ EOF
 echo "=== 2. Purging Desktop & Installing LXQt + SDDM ==="
 apt-get purge -y gnome-shell gdm3 ubuntu-desktop generic-resources gnome-session || true
 apt-get autoremove --purge -y
-apt-get update
 add-apt-repository -y universe
+apt-get update
 apt-get install -y lxqt sddm network-manager-gnome
 
 echo "sddm shared/default-x-display-manager select sddm" | debconf-set-selections
