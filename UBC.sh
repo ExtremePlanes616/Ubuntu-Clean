@@ -4,7 +4,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 echo "=== 1. Purging Unwanted Packages & Telemetry ==="
-apt-get purge -y ubuntu-pro-client ubuntu-advantage-tools ubuntu-report popularity-contest apport whoopsie snapd landscape-client-ui-install landscape-common totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub
+apt-get purge -y ubuntu-pro-client ubuntu-advantage-tools ubuntu-report popularity-contest apport whoopsie snapd landscape-client-ui-install landscape-common totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub || true
 rm -f /etc/apt/apt.conf.d/20apt-esm-hook.conf
 rm -f /var/lib/ubuntu-advantage/messages/*
 rm -rf /root/snap /var/snap /var/lib/snapd /var/cache/snapd
