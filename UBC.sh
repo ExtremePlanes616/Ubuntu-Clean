@@ -4,6 +4,14 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 echo "=== 0. Installing Core Repo Prerequisites ==="
+echo "=== Cleaning Legacy/Broken Repositories ==="
+rm -f /etc/apt/sources.list.d/*mozilla*
+sed -i '/mozilla\.org/d' /etc/apt/sources.list
+echo "=== Updating Package Lists ==="
+apt-get update
+
+
+echo "=== Updating Package Lists ==="
 apt-get update
 apt-get install -y software-properties-common gnupg curl wget jq bzip2
 
