@@ -5,7 +5,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "=== 0. Installing Core Repo Prerequisites ==="
 apt-get update
-apt-get install -y software-properties-common gnupg2 curl wget jq bzip2
+apt-get install -y software-properties-common gnupg curl wget jq bzip2
 
 echo "=== 1. Purging Unwanted Packages & Telemetry ==="
 apt-get purge -y ubuntu-pro-client ubuntu-advantage-tools ubuntu-report popularity-contest apport whoopsie snapd landscape-client-ui-install landscape-common totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub || true
