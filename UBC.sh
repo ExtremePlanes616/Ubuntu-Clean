@@ -3,6 +3,10 @@ set -e
 
 export DEBIAN_FRONTEND=noninteractive
 
+echo "=== 0. Installing Core Repo Prerequisites ==="
+apt-get update
+apt-get install -y software-properties-common gnupg2 curl wget jq bzip2
+
 echo "=== 1. Purging Unwanted Packages & Telemetry ==="
 apt-get purge -y ubuntu-pro-client ubuntu-advantage-tools ubuntu-report popularity-contest apport whoopsie snapd landscape-client-ui-install landscape-common totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub || true
 rm -f /etc/apt/apt.conf.d/20apt-esm-hook.conf
@@ -19,6 +23,8 @@ EOF
 echo "=== 2. Purging Desktop & Installing LXQt + SDDM ==="
 apt-get purge -y gnome-shell gdm3 ubuntu-desktop generic-resources gnome-session || true
 apt-get autoremove --purge -y
+
+# Safely enable universe now that software-properties-common is present
 add-apt-repository -y universe
 apt-get update
 apt-get install -y lxqt sddm network-manager-gnome
@@ -51,9 +57,9 @@ EOF
 
 echo "=== 4. Adding Mozilla Official Repository for Firefox ESR ==="
 install -d -m 0755 /etc/apt/keyrings
-wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null
+wget -q https://mozilla.org -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null
 
-echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list
+echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://mozilla.org mozilla main" > /etc/apt/sources.list.d/mozilla.list
 
 cat <<EOF > /etc/apt/preferences.d/mozilla
 Package: *
@@ -64,7 +70,7 @@ EOF
 apt-get update
 
 echo "=== 5. Installing Core Utilities, Media Tools, qBittorrent & Firefox ESR ==="
-apt-get install -y wget curl jq bzip2 ffmpeg python3 mpv keepassxc flatpak tor redsocks iptables firefox-esr qbittorrent \
+apt-get install -y ffmpeg python3 mpv keepassxc flatpak tor redsocks iptables firefox-esr qbittorrent \
     libunwind8 libssl-dev libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0
 
 # mpv Hardened Configuration
@@ -92,7 +98,8 @@ apt-get install -y wireshark tshark
 groupadd -f wireshark
 chown root:wireshark /usr/bin/dumpcap
 chmod 750 /usr/bin/dumpcap
-setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
+# Wrapped in '|| true' because chroot filesystems often block extended attributes (xattr)
+setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap || true
 
 echo "=== 7. Installing Virtualization (Virt-Manager) ==="
 apt-get install -y virt-manager qemu-desktop qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
@@ -100,7 +107,7 @@ groupadd -f libvirt
 groupadd -f kvm
 
 echo "=== 8. Installing Jackett ==="
-JACKETT_URL=$(curl -s "https://api.github.com/repos/Jackett/Jackett/releases/latest" | \
+JACKETT_URL=$(curl -s "https://github.com" | \
       jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
 
 if [ -n "$JACKETT_URL" ] && [ "$JACKETT_URL" != "null" ]; then
@@ -130,27 +137,25 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-systemctl enable jackett || true
+# Use systemctl preset or create link manually instead of live systemctl activations
+ln -s /etc/systemd/system/jackett.service /etc/systemd/system/multi-user.target.wants/jackett.service || true
 
 echo "=== 9. Downloading & Installing Tor Browser ==="
-TOR_VERSION=$(curl -s https://aus1.torproject.org/torbrowser/update_3/release/downloads.json | jq -r '.version' || echo "13.0.9")
+TOR_VERSION=$(curl -s https://torproject.org | jq -r '.version' || echo "13.0.9")
 TOR_TAR="tor-browser-linux-x86_64-${TOR_VERSION}.tar.xz"
-TOR_URL="https://dist.torproject.org/torbrowser/${TOR_VERSION}/${TOR_TAR}"
+TOR_URL="https://torproject.org{TOR_VERSION}/${TOR_TAR}"
 
 wget -q "$TOR_URL" -O /tmp/tor-browser.tar.xz
 if [ -s /tmp/tor-browser.tar.xz ]; then
     tar -xvJf /tmp/tor-browser.tar.xz -C /opt/
     rm /tmp/tor-browser.tar.xz
-    if [ -d /opt/tor-browser ]; then
-        cd /opt/tor-browser
-        ./start-tor-browser.desktop --register-app || true
-    fi
+    chmod -R 755 /opt/tor-browser
 else
     echo "Warning: Tor Browser download failed, skipping installation."
 fi
 
 echo "=== 10. Downloading & Installing Hydra Launcher ==="
-HYDRA_URL=$(curl -s "https://api.github.com/repos/hydralauncher/hydra/releases/latest" | \
+HYDRA_URL=$(curl -s "https://github.com" | \
       jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url' | head -n 1)
 
 if [ -n "$HYDRA_URL" ] && [ "$HYDRA_URL" != "null" ]; then
@@ -163,7 +168,7 @@ else
 fi
 
 echo "=== 11. Configuring Flatpak ==="
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --if-not-exists flathub https://flathub.org
 
 cat <<EOF >> /etc/environment
 XDG_DATA_DIRS="/var/lib/flatpak/exports/share:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -205,12 +210,13 @@ cat <<EOF >> /etc/tor/torrc
 DNSPort 127.0.0.1:5353
 EOF
 
-# Create setup routing script executed by systemd
+# Create setup routing script executed by systemd AT DEPLOYED BOOT TIME
 cat <<EOF > /usr/local/bin/setup-tor-routing.sh
 #!/bin/sh
+# Safely handles daemon initialization once the host system is fully alive
 systemctl restart redsocks || true
 
-# Initialize Libvirt network bridges
+# Initialize Libvirt network bridges post-boot
 systemctl enable --now libvirtd || true
 virsh net-autostart default || true
 virsh net-start default || true
@@ -224,8 +230,7 @@ iptables -t nat -A REDSOCKS_VM -d 192.168.0.0/16 -j RETURN
 iptables -t nat -A REDSOCKS_VM -d 10.0.0.0/8 -j RETURN
 iptables -t nat -A REDSOCKS_VM -d 172.16.0.0/12 -j RETURN
 
-iptables -t nat -A PREROUTING -i virbr0 -p tcp --dport 80 -j REDSOCKS_VM
-iptables -t nat -A PREROUTING -i virbr0 -p tcp --dport 443 -j REDSOCKS_VM
+iptables -t nat -A PREROUTING -i virbr0 -p tcp -j REDSOCKS_VM
 iptables -t nat -A REDSOCKS_VM -p tcp -j REDIRECT --to-ports 12345
 EOF
 
@@ -240,7 +245,7 @@ EOF
 
 chmod +x /usr/local/bin/teardown-tor-routing.sh
 
-# Register native systemd service for Tor routing/redsocks/libvirt initialization
+# Register native systemd service for Tor routing
 cat <<EOF > /etc/systemd/system/tor-proxy.service
 [Unit]
 Description=Tor Transparent Proxy, Redsocks, and VM Isolation Routing
@@ -257,14 +262,16 @@ ExecStop=/usr/local/bin/teardown-tor-routing.sh
 WantedBy=multi-user.target
 EOF
 
-# Enable native systemd services so they persist across the final install
-systemctl enable tor || true
-systemctl enable redsocks || true
-systemctl enable tor-proxy || true
+# Statically enable systemd targets inside the chroot environment safely
+# (Avoids calling 'systemctl enable' which breaks in Cubic environments)
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -s /lib/systemd/system/tor.service /etc/systemd/system/multi-user.target.wants/tor.service || true
+ln -s /lib/systemd/system/redsocks.service /etc/systemd/system/multi-user.target.wants/redsocks.service || true
+ln -s /etc/systemd/system/tor-proxy.service /etc/systemd/system/multi-user.target.wants/tor-proxy.service || true
 
 echo "=== 13. Cleanup ==="
 apt-get autoremove --purge -y
 apt-get clean
 rm -rf /tmp/* /var/tmp/*
 
-echo "Build script completely integrated with native systemd services!"
+echo "Build script safely customized for Cubic environment integration!"
