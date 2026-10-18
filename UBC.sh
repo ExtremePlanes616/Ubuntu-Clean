@@ -7,25 +7,50 @@ echo "=== 0. Installing Core Repo Prerequisites ==="
 echo "=== Cleaning Legacy/Broken Repositories ==="
 rm -f /etc/apt/sources.list.d/*mozilla*
 sed -i '/mozilla\.org/d' /etc/apt/sources.list
-echo "=== Updating Package Lists ==="
-apt-get update
 
 echo "=== Updating Package Lists ==="
 apt-get update
 apt-get install -y software-properties-common gnupg curl wget jq bzip2
 
-echo "=== 1. Purging Unwanted Packages & Telemetry ==="
-apt-get purge -y ubuntu-pro-client ubuntu-advantage-tools ubuntu-report popularity-contest apport whoopsie snapd landscape-client-ui-install landscape-common totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub || true
+echo "=== 1. Purging Snap, Unwanted Packages & Telemetry ==="
+# Remove desktop-facing snap wrappers first so APT dependencies resolve cleanly
+apt-get purge -y snapd-desktop-integration gnome-initial-setup 2>/dev/null || true
+
+# Remove any pre-installed snaps in the seed if snap command exists
+if command -v snap &>/dev/null; then
+    for snap_name in $(snap list 2>/dev/null | awk 'NR>1 {print $1}'); do
+        snap remove --purge "$snap_name" 2>/dev/null || true
+    done
+fi
+
+# Stop and disable snap services
+systemctl stop snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+systemctl disable snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+
+# Force unmount active snap loop mounts
+for m in $(lsblk -l 2>/dev/null | grep snap | awk '{print $1}'); do
+    umount -l "/dev/$m" 2>/dev/null || true
+done
+
+# Purge snapd, squashfuse, and bloat/telemetry packages
+apt-get purge -y snapd squashfuse ubuntu-pro-client ubuntu-advantage-tools ubuntu-report \
+                 popularity-contest apport whoopsie landscape-client-ui-install landscape-common \
+                 totem totem-common totem-plugins zeitgeist-core zeitgeist-datahub || true
+
+# Strip residual snap system directories
+rm -rf /snap /var/snap /var/lib/snapd /var/cache/snapd /usr/lib/snapd /root/snap ~/snap
 rm -f /etc/apt/apt.conf.d/20apt-esm-hook.conf
 rm -f /var/lib/ubuntu-advantage/messages/*
-rm -rf /root/snap /var/snap /var/lib/snapd /var/cache/snapd
 
-# Pin snapd against reinstallation
+# Pin snapd against automatic reinstallation via APT stubs
 cat <<EOF > /etc/apt/preferences.d/nosnap.pref
+# Prevent Ubuntu from automatically pulling snapd back via APT stubs
 Package: snapd
-Pin: release a=*
+Pin: release *
 Pin-Priority: -10
 EOF
+
+apt-get autoremove --purge -y
 
 echo "=== 2. Purging Desktop & Installing LXQt + SDDM ==="
 apt-get purge -y gnome-shell gdm3 ubuntu-desktop generic-resources gnome-session || true
@@ -107,14 +132,14 @@ chown root:wireshark /usr/bin/dumpcap
 chmod 750 /usr/bin/dumpcap
 setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap || true
 
-echo "=== 7. Installing Virtualization (Virt-Manager) ==="
+echo "=== 7. Installing Virtualization & Downloader Tools ==="
 apt-get install -y virt-manager libvirt-daemon-system libvirt-clients qemu-system-x86 bridge-utils aria2
 groupadd -f libvirt
 groupadd -f kvm
 
 echo "=== 8. Installing Jackett ==="
 JACKETT_URL=$(curl -s "https://api.github.com/repos/Jackett/Jackett/releases/latest" | \
-      jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
+    jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
 
 if [ -n "$JACKETT_URL" ] && [ "$JACKETT_URL" != "null" ]; then
     echo "Downloading Jackett from: $JACKETT_URL"
@@ -162,7 +187,7 @@ fi
 
 echo "=== 10. Downloading & Installing Hydra Launcher ==="
 HYDRA_URL=$(curl -s "https://api.github.com/repos/hydralauncher/hydra/releases/latest" | \
-      jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url' | head -n 1)
+    jq -r '.assets[] | select(.name | endswith(".deb")) | .browser_download_url' | head -n 1)
 
 if [ -n "$HYDRA_URL" ] && [ "$HYDRA_URL" != "null" ]; then
     echo "Downloading Hydra Launcher from: $HYDRA_URL"
@@ -290,4 +315,4 @@ apt-get autoremove --purge -y
 apt-get clean
 rm -rf /tmp/* /var/tmp/*
 
-echo "Build script successfully hardened for Cubic integration!"
+echo "Build script successfully updated with full Snap purge!"
