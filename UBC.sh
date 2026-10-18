@@ -10,7 +10,6 @@ sed -i '/mozilla\.org/d' /etc/apt/sources.list
 echo "=== Updating Package Lists ==="
 apt-get update
 
-
 echo "=== Updating Package Lists ==="
 apt-get update
 apt-get install -y software-properties-common gnupg curl wget jq bzip2
@@ -109,7 +108,7 @@ chmod 750 /usr/bin/dumpcap
 setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap || true
 
 echo "=== 7. Installing Virtualization (Virt-Manager) ==="
-apt-get install -y virt-manager qemu-desktop qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+apt-get install -y virt-manager libvirt-daemon-system libvirt-clients qemu-system-x86 bridge-utils aria2
 groupadd -f libvirt
 groupadd -f kvm
 
