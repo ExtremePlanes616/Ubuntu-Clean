@@ -181,7 +181,8 @@ http_proxy=socks5h://127.0.0.1:9050
 https_proxy=socks5h://127.0.0.1:9050
 EOF
 
-echo "=== 12. System-wide Proxy Rules & rc.local Setup ==="
+echo "=== 12. Configuring System-wide Proxy, DNS, & Native Systemd Routing Services ==="
+
 cat <<EOF > /etc/redsocks.conf
 base {
     log_debug = off;
@@ -204,17 +205,17 @@ cat <<EOF >> /etc/tor/torrc
 DNSPort 127.0.0.1:5353
 EOF
 
-cat <<'EOF' > /etc/rc.local
-#!/bin/sh -e
-
-systemctl enable --now tor || true
-systemctl restart tor || true
+# Create setup routing script executed by systemd
+cat <<EOF > /usr/local/bin/setup-tor-routing.sh
+#!/bin/sh
 systemctl restart redsocks || true
 
+# Initialize Libvirt network bridges
 systemctl enable --now libvirtd || true
 virsh net-autostart default || true
 virsh net-start default || true
 
+# Create unique iptables chain for Virt-Manager traffic isolation
 iptables -t nat -N REDSOCKS_VM || true
 iptables -t nat -F REDSOCKS_VM
 
@@ -226,16 +227,44 @@ iptables -t nat -A REDSOCKS_VM -d 172.16.0.0/12 -j RETURN
 iptables -t nat -A PREROUTING -i virbr0 -p tcp --dport 80 -j REDSOCKS_VM
 iptables -t nat -A PREROUTING -i virbr0 -p tcp --dport 443 -j REDSOCKS_VM
 iptables -t nat -A REDSOCKS_VM -p tcp -j REDIRECT --to-ports 12345
-
-exit 0
 EOF
 
-chmod +x /etc/rc.local
-systemctl enable rc-local || true
+chmod +x /usr/local/bin/setup-tor-routing.sh
+
+# Create teardown script
+cat <<EOF > /usr/local/bin/teardown-tor-routing.sh
+#!/bin/sh
+iptables -t nat -F REDSOCKS_VM || true
+iptables -t nat -X REDSOCKS_VM || true
+EOF
+
+chmod +x /usr/local/bin/teardown-tor-routing.sh
+
+# Register native systemd service for Tor routing/redsocks/libvirt initialization
+cat <<EOF > /etc/systemd/system/tor-proxy.service
+[Unit]
+Description=Tor Transparent Proxy, Redsocks, and VM Isolation Routing
+After=network.target tor.service
+Wants=tor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/setup-tor-routing.sh
+ExecStop=/usr/local/bin/teardown-tor-routing.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable native systemd services so they persist across the final install
+systemctl enable tor || true
+systemctl enable redsocks || true
+systemctl enable tor-proxy || true
 
 echo "=== 13. Cleanup ==="
 apt-get autoremove --purge -y
 apt-get clean
 rm -rf /tmp/* /var/tmp/*
 
-echo "Build script with qBittorrent and Jackett completed successfully!"
+echo "Build script completely integrated with native systemd services!"
