@@ -17,7 +17,7 @@ Pin-Priority: -10
 EOF
 
 echo "=== 2. Purging Desktop & Installing LXQt + SDDM ==="
-apt-get purge -y gnome-shell gdm3 ubuntu-desktop generic-resources gnome-session
+apt-get purge -y gnome-shell gdm3 ubuntu-desktop generic-resources gnome-session || true
 apt-get autoremove --purge -y
 apt-get update
 
